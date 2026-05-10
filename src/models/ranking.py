@@ -9,14 +9,20 @@ def rank_tests(model, df):
         ]
     ]
 
-    # probability of failure
     probabilities = model.predict_proba(X)[:, 1]
 
+    df = df.copy()
     df["failure_probability"] = probabilities
 
-    ranked_df = df.sort_values(
-        by="failure_probability",
-        ascending=False
-    )
+    # 🧠 הוספת הסבר (MVP explainability)
+    def explain(row):
+        if row["failure_probability"] > 0.7:
+            return "High risk: frequent failures + high severity"
+        elif row["failure_probability"] > 0.4:
+            return "Medium risk: some instability detected"
+        else:
+            return "Low risk: stable test history"
 
-    return ranked_df
+    df["explanation"] = df.apply(explain, axis=1)
+
+    return df.sort_values("failure_probability", ascending=False)
