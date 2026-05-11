@@ -5,10 +5,17 @@ from src.data.loader import load_data
 from src.models.feature_engineering import add_features
 from src.models.ml_model import train_model
 from src.models.ranking import rank_tests
+from pydantic import BaseModel
 
 app = FastAPI(
     title="AI Smart Test Selector API"
 )
+
+class TestInput(BaseModel):
+    runtime_sec: int
+    previous_failures: int
+    run_count: int
+    severity_score: int
 
 # Load system once
 df = load_data()
@@ -59,3 +66,25 @@ def top_risky():
             "explanation"
         ]
     ].to_dict(orient="records")
+
+
+# -----------------------------
+# PREDICT TEST RISK
+# -----------------------------
+@app.post("/predict")
+def predict(test: TestInput):
+
+    input_df = pd.DataFrame(
+        [{
+            "runtime_sec": test.runtime_sec,
+            "previous_failures": test.previous_failures,
+            "run_count": test.run_count,
+            "severity_score": test.severity_score
+        }]
+    )
+
+    probability = model.predict_proba(input_df)[0][1]
+
+    return {
+        "failure_probability": round(float(probability), 2)
+    }
