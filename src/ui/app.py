@@ -124,11 +124,16 @@ for _, row in filtered_df.iterrows():
 
     risk = row["failure_probability"]
 
-    # Color by risk
-    if risk > 0.7:
+    # Risk classification
+    if risk > 0.85:
+        risk_label = "🔥 CRITICAL RISK"
+
+    elif risk > 0.7:
         risk_label = "🔴 HIGH RISK"
+
     elif risk > 0.4:
         risk_label = "🟡 MEDIUM RISK"
+
     else:
         risk_label = "🟢 LOW RISK"
 
@@ -161,19 +166,40 @@ for _, row in filtered_df.iterrows():
 
         st.write("### 🎯 Recommended Action")
 
-        if risk > 0.7:
+        if risk > 0.85:
+
             st.error(
-                "Run this test early in regression and monitor closely."
+                "🔥 Critical risk detected.\n\n"
+                "- Run immediately in smoke testing\n"
+                "- Monitor logs closely\n"
+                "- Notify firmware owner if failed"
+            )
+
+        elif risk > 0.7:
+
+            st.warning(
+                "⚠️ High-risk test.\n\n"
+                "- Run early in regression\n"
+                "- Prioritize in validation cycle\n"
+                "- Recommended for daily execution"
             )
 
         elif risk > 0.4:
-            st.warning(
-                "Test shows instability. Recommended for mid-priority execution."
+
+            st.info(
+                "🟡 Medium-risk test.\n\n"
+                "- Monitor stability trends\n"
+                "- Include in standard regression\n"
+                "- Investigate if failure frequency increases"
             )
 
         else:
+
             st.success(
-                "Low-risk stable test. Can run later in regression."
+                "✅ Stable low-risk test.\n\n"
+                "- Safe for nightly execution\n"
+                "- Lower execution priority\n"
+                "- Minimal monitoring required"
             ) 
 
 
