@@ -22,14 +22,11 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 sh '''
-                python -m venv venv
-                . venv/bin/activate
-                pip install --upgrade pip
-                pip install -r requirements.txt
+                docker run --rm -v $WORKSPACE:/app -w /app python:3.11-slim \
+                bash -c "pip install --upgrade pip && pip install -r requirements.txt"
                 '''
             }
         }
-
         // =====================================================
         // 3. START FASTAPI SERVICE
         // =====================================================
