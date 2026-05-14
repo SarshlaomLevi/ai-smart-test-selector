@@ -1,124 +1,145 @@
 pipeline {
-    agent any
+    agent none
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        timeout(time: 20, unit: 'MINUTES')
+    }
 
     environment {
-        API_URL = "http://localhost:8000"
+        PYTHON_IMAGE = 'python:3.11-slim'
+        PIP_CACHE_DIR = '/tmp/pip-cache'
     }
 
     stages {
 
         // =====================================================
-        // 1. CHECKOUT SOURCE CODE
+        // 1. Checkout
         // =====================================================
-        stage('Checkout Code') {
+        stage('Checkout') {
+            agent any
             steps {
                 checkout scm
             }
         }
 
         // =====================================================
-        // 2. SETUP PYTHON ENVIRONMENT
+        // 2. Install Dependencies (Docker-based)
         // =====================================================
         stage('Install Dependencies') {
-            steps {
-                sh '''
-                docker run --rm -v $WORKSPACE:/app -w /app python:3.11-slim \
-                bash -c "pip install --upgrade pip && pip install -r requirements.txt"
-                '''
+            agent {
+                docker {
+                    image "${PYTHON_IMAGE}"
+                    reuseNode true
+                }
             }
-        }
-        // =====================================================
-        // 3. START FASTAPI SERVICE
-        // =====================================================
-        stage('Start API Server') {
+
             steps {
-                sh '''
-                . venv/bin/activate
-                nohup uvicorn src.api.main:app --host 0.0.0.0 --port 8000 &
-                sleep 10
-                '''
+                sh """
+                    python -m pip install --upgrade pip
+                    pip install -r requirements.txt
+                """
             }
         }
 
         // =====================================================
-        // 4. FETCH CRITICAL TESTS FROM API
+        // 3. Lint (Quality Gate #1)
         // =====================================================
-        stage('Fetch Critical Tests') {
+        stage('Lint') {
+            agent {
+                docker {
+                    image "${PYTHON_IMAGE}"
+                    reuseNode true
+                }
+            }
+
             steps {
-                script {
-                    def response = sh(
-                        script: "curl -s ${env.API_URL}/critical-tests",
-                        returnStdout: true
-                    ).trim()
+                sh """
+                    pip install flake8
+                    flake8 . --count --show-source --statistics
+                """
+            }
+        }
 
-                    echo "Critical Tests Response: ${response}"
+        // =====================================================
+        // 4. Unit Tests
+        // =====================================================
+        stage('Unit Tests') {
+            agent {
+                docker {
+                    image "${PYTHON_IMAGE}"
+                    reuseNode true
+                }
+            }
 
-                    writeFile file: 'critical_tests.json', text: response
+            steps {
+                sh """
+                    pip install pytest
+                    pytest -v --junitxml=test-results.xml
+                """
+            }
+
+            post {
+                always {
+                    junit 'test-results.xml'
                 }
             }
         }
 
         // =====================================================
-        // 5. EXECUTE ONLY CRITICAL TESTS
+        // 5. Run Application Smoke Test
         // =====================================================
-        stage('Run Critical Tests') {
-            steps {
-                script {
-
-                    def tests = readJSON file: 'critical_tests.json'
-
-                    if (tests.size() == 0) {
-                        echo "No critical tests found. Skipping execution."
-                        return
-                    }
-
-                    for (test in tests) {
-
-                        echo "Running test: ${test.test_name}"
-
-                        // Hook for your real test framework execution
-                        sh """
-                        echo "Executing ${test.test_name}"
-                        python run_test.py --name ${test.test_name}
-                        """
-                    }
+        stage('Smoke Test API') {
+            agent {
+                docker {
+                    image "${PYTHON_IMAGE}"
+                    reuseNode true
                 }
+            }
+
+            steps {
+                sh """
+                    python -m pip install -r requirements.txt
+                    python -c "print('Smoke test placeholder - start API here')"
+                """
             }
         }
 
         // =====================================================
-        // 6. QUALITY GATE (FAIL BUILD IF RISK IS TOO HIGH)
+        // 6. Security / Dependency Check (optional but pro)
         // =====================================================
-        stage('Quality Gate') {
-            steps {
-                script {
-
-                    def tests = readJSON file: 'critical_tests.json'
-
-                    def criticalCount = 0
-
-                    for (test in tests) {
-
-                        if (test.failure_probability > 0.85) {
-                            criticalCount++
-                        }
-                    }
-
-                    echo "Number of critical high-risk tests: ${criticalCount}"
-
-                    if (criticalCount > 2) {
-                        error("❌ Build failed due to too many high-risk tests")
-                    } else {
-                        echo "✅ Build passed quality gate successfully"
-                    }
+        stage('Security Scan') {
+            agent {
+                docker {
+                    image "${PYTHON_IMAGE}"
+                    reuseNode true
                 }
+            }
+
+            steps {
+                sh """
+                    pip install pip-audit
+                    pip-audit || true
+                """
             }
         }
     }
 
+    // =====================================================
+    // Post Actions (NVIDIA-style observability)
+    // =====================================================
     post {
+        success {
+            echo "✅ Pipeline passed successfully"
+        }
+
+        failure {
+            echo "❌ Pipeline failed - check logs"
+        }
+
         always {
-            echo "Pipeline execution completed"
+            archiveArtifacts artifacts: '**/*.log, **/*.xml', allowEmptyArchive: true
         }
     }
 }
