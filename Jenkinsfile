@@ -5,10 +5,12 @@ pipeline {
         timestamps()
         disableConcurrentBuilds()
         timeout(time: 20, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '10'))
     }
 
     environment {
-        PYTHON_IMAGE='python:3.11-slim'
+        PYTHON_IMAGE = 'python:3.11-slim'
+        PIP_CACHE_DIR = '/tmp/pip-cache'
     }
 
     stages {
@@ -19,11 +21,12 @@ pipeline {
             }
         }
 
-        stage('Verify Docker') {
+        stage('Docker Sanity Check') {
             steps {
                 sh '''
-                echo "Checking Docker..."
+                echo "Docker version check"
                 docker version
+                docker info > /dev/null
                 '''
             }
         }
@@ -32,19 +35,21 @@ pipeline {
             steps {
                 sh '''
                 docker run --rm \
-                -v $WORKSPACE:/app \
-                -w /app \
-                ${PYTHON_IMAGE} \
-                bash -c "
-                pip install --upgrade pip &&
-                pip install -r requirements.txt &&
-                pip install pytest flake8 pip-audit
-                "
+                    -v $WORKSPACE:/app \
+                    -v $PIP_CACHE_DIR:/root/.cache/pip \
+                    -w /app \
+                    ${PYTHON_IMAGE} \
+                    bash -c "
+                        set -e
+                        pip install --upgrade pip
+                        pip install -r requirements.txt
+                        pip install pytest flake8 pip-audit
+                    "
                 '''
             }
         }
 
-        stage('Quality Checks') {
+        stage('Quality Gates') {
 
             parallel {
 
@@ -52,12 +57,14 @@ pipeline {
                     steps {
                         sh '''
                         docker run --rm \
-                        -v $WORKSPACE:/app \
-                        -w /app \
-                        ${PYTHON_IMAGE} \
-                        bash -c "
-                        flake8 . --count --statistics
-                        "
+                            -v $WORKSPACE:/app \
+                            -w /app \
+                            ${PYTHON_IMAGE} \
+                            bash -c "
+                                set -e
+                                echo 'Running flake8...'
+                                flake8 . --count --statistics
+                            "
                         '''
                     }
                 }
@@ -66,16 +73,17 @@ pipeline {
                     steps {
                         sh '''
                         docker run --rm \
-                        -v $WORKSPACE:/app \
-                        -w /app \
-                        ${PYTHON_IMAGE} \
-                        bash -c "
-                        pip-audit
-                        "
+                            -v $WORKSPACE:/app \
+                            -w /app \
+                            ${PYTHON_IMAGE} \
+                            bash -c "
+                                set -e
+                                echo 'Running pip-audit...'
+                                pip-audit
+                            "
                         '''
                     }
                 }
-
             }
         }
 
@@ -83,19 +91,20 @@ pipeline {
             steps {
                 sh '''
                 docker run --rm \
-                -v $WORKSPACE:/app \
-                -w /app \
-                ${PYTHON_IMAGE} \
-                bash -c "
-                pytest -v --junitxml=test-results.xml
-                "
+                    -v $WORKSPACE:/app \
+                    -w /app \
+                    ${PYTHON_IMAGE} \
+                    bash -c "
+                        set -e
+                        pytest -v --junitxml=test-results.xml
+                    "
                 '''
             }
+        }
 
-            post {
-                always {
-                    junit 'test-results.xml'
-                }
+        stage('Publish Test Results') {
+            steps {
+                junit testResults: 'test-results.xml', allowEmptyResults: true
             }
         }
 
@@ -103,21 +112,18 @@ pipeline {
             steps {
                 sh '''
                 docker run --rm \
-                -v $WORKSPACE:/app \
-                -w /app \
-                ${PYTHON_IMAGE} \
-                bash -c "
-                python -c \\"print('Smoke Test Passed')\\"
-                "
+                    -v $WORKSPACE:/app \
+                    -w /app \
+                    ${PYTHON_IMAGE} \
+                    python -c "print('Smoke Test Passed')"
                 '''
             }
         }
     }
 
     post {
-
         success {
-            echo "✅ Pipeline passed"
+            echo "✅ NVIDIA-style pipeline passed"
         }
 
         failure {
