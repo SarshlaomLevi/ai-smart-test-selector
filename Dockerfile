@@ -1,10 +1,10 @@
-# Use official Python image
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies needed for ML / compiled Python packages
+# =========================
+# System dependencies
+# =========================
 RUN apt-get update && apt-get install -y \
     build-essential \
     gcc \
@@ -12,17 +12,30 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project
-COPY . /app
+# =========================
+# Install dependencies FIRST (for caching)
+# =========================
+COPY requirements.txt .
 
-# Upgrade pip
-RUN pip install --upgrade pip
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Install Python dependencies
-RUN pip install -r requirements.txt
+# =========================
+# Copy source code LAST (important for cache)
+# =========================
+COPY . .
 
-# Expose FastAPI port
+# =========================
+# CI / Dev tools (optional but recommended)
+# =========================
+RUN pip install --no-cache-dir \
+    flake8 \
+    bandit \
+    pytest
+
+# =========================
+# Runtime config
+# =========================
 EXPOSE 8000
 
-# Start FastAPI server
 CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

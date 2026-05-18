@@ -9,8 +9,10 @@ pipeline {
     }
 
     environment {
-        PYTHON_IMAGE = "python:3.11-slim"
-        WORKDIR = "$WORKSPACE"
+        IMAGE_NAME = "ai-smart-test-selector-ci"
+        TAG = "${BUILD_NUMBER}"
+        FULL_IMAGE = "${IMAGE_NAME}:${TAG}"
+        WORKDIR = "/app"
     }
 
     stages {
@@ -22,49 +24,15 @@ pipeline {
             }
         }
 
-        stage('Fix Permissions') {
+        stage('Build Docker Image (Cached CI Image)') {
             steps {
                 sh '''
-                    echo "Fixing workspace permissions..."
-                    chmod -R a+rwX $WORKSPACE
-                '''
-            }
-        }
+                    echo "=== BUILDING CI IMAGE ==="
 
-        stage('Debug Workspace') {
-            steps {
-                sh '''
-                    echo "=== HOST WORKSPACE ==="
-                    pwd
-                    ls -la
-
-                    echo "=== IMPORTANT FILES CHECK ==="
-                    test -f requirements.txt && echo "requirements OK" || exit 1
-                    test -f main.py && echo "main.py OK" || echo "WARNING: no main.py"
-                '''
-            }
-        }
-
-        stage('Docker Sanity') {
-            steps {
-                sh '''
-                    docker version
-                '''
-            }
-        }
-
-        stage('Install Dependencies (Docker)') {
-            steps {
-                sh '''
-                    docker run --rm \
-                        --user $(id -u):$(id -g) \
-                        -v $WORKSPACE:$WORKSPACE \
-                        -w $WORKSPACE \
-                        $PYTHON_IMAGE bash -c "
-                            set -e
-                            pip install --upgrade pip
-                            pip install -r requirements.txt
-                        "
+                    docker build \
+                        -t $IMAGE_NAME:$TAG \
+                        -t $IMAGE_NAME:latest \
+                        .
                 '''
             }
         }
@@ -73,12 +41,9 @@ pipeline {
             steps {
                 sh '''
                     docker run --rm \
-                        --user $(id -u):$(id -g) \
-                        -v $WORKSPACE:$WORKSPACE \
-                        -w $WORKSPACE \
-                        $PYTHON_IMAGE bash -c "
+                        $IMAGE_NAME:$TAG \
+                        bash -c "
                             set -e
-                            pip install flake8
                             flake8 src || true
                         "
                 '''
@@ -89,12 +54,9 @@ pipeline {
             steps {
                 sh '''
                     docker run --rm \
-                        --user $(id -u):$(id -g) \
-                        -v $WORKSPACE:$WORKSPACE \
-                        -w $WORKSPACE \
-                        $PYTHON_IMAGE bash -c "
+                        $IMAGE_NAME:$TAG \
+                        bash -c "
                             set -e
-                            pip install bandit
                             bandit -r src || true
                         "
                 '''
@@ -105,13 +67,9 @@ pipeline {
             steps {
                 sh '''
                     docker run --rm \
-                        --user $(id -u):$(id -g) \
-                        -v $WORKSPACE:$WORKSPACE \
-                        -w $WORKSPACE \
-                        $PYTHON_IMAGE bash -c "
+                        $IMAGE_NAME:$TAG \
+                        bash -c "
                             set -e
-                            pip install -r requirements.txt
-                            pip install pytest
                             pytest -v
                         "
                 '''
@@ -122,10 +80,8 @@ pipeline {
             steps {
                 sh '''
                     docker run --rm \
-                        --user $(id -u):$(id -g) \
-                        -v $WORKSPACE:$WORKSPACE \
-                        -w $WORKSPACE \
-                        $PYTHON_IMAGE bash -c "
+                        $IMAGE_NAME:$TAG \
+                        bash -c "
                             set -e
                             python main.py --help || echo 'No CLI entrypoint'
                         "
@@ -133,20 +89,30 @@ pipeline {
             }
         }
 
-        stage('Archive Artifacts') {
+        stage('Tag Success Build') {
             steps {
-                archiveArtifacts artifacts: '**/*', fingerprint: true
+                sh '''
+                    docker tag $IMAGE_NAME:$TAG $IMAGE_NAME:stable
+                '''
+            }
+        }
+
+        stage('Cleanup Old Images') {
+            steps {
+                sh '''
+                    docker image prune -f || true
+                '''
             }
         }
     }
 
     post {
         success {
-            echo "✅ Pipeline succeeded"
+            echo "✅ CI PASSED - production build stable"
         }
 
         failure {
-            echo "❌ Pipeline failed"
+            echo "❌ CI FAILED"
         }
 
         always {
