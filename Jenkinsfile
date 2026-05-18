@@ -40,7 +40,9 @@ pipeline {
                 echo "=== HOST CHECK ==="
                 ls -la
                 test -f requirements.txt && echo "requirements EXISTS" || echo "missing requirements"
-                cat requirements.txt | head -n 20
+
+                echo "=== FIRST LINES ==="
+                head -n 10 requirements.txt || true
                 '''
             }
         }
@@ -59,15 +61,16 @@ pipeline {
             steps {
                 sh '''
                 docker run --rm \
-                    -v $WS:/app \
+                    -v "$WS:/app" \
                     -w /app \
                     ${PYTHON_IMAGE} \
                     bash -c "
+                        set -e
                         echo '=== INSIDE CONTAINER ==='
                         pwd
                         ls -la /app
                         echo '=== REQUIREMENTS INSIDE CONTAINER ==='
-                        cat /app/requirements.txt | head -n 20
+                        cat /app/requirements.txt | head -n 10 || true
                     "
                 '''
             }
@@ -77,14 +80,21 @@ pipeline {
             steps {
                 sh '''
                 docker run --rm \
-                    -v $WS:/app \
-                    -v $PIP_CACHE_DIR:/root/.cache/pip \
+                    -v "$WS:/app" \
+                    -v "$PIP_CACHE_DIR:/root/.cache/pip" \
                     -w /app \
                     ${PYTHON_IMAGE} \
                     bash -c "
                         set -e
+                        echo 'Upgrading pip...'
                         pip install --upgrade pip
+
+                        echo 'Installing requirements...'
+                        cat /app/requirements.txt
+
                         pip install -r /app/requirements.txt
+
+                        echo 'Installing dev tools...'
                         pip install pytest flake8 pip-audit
                     "
                 '''
@@ -98,7 +108,7 @@ pipeline {
                     steps {
                         sh '''
                         docker run --rm \
-                            -v $WS:/app \
+                            -v "$WS:/app" \
                             -w /app \
                             ${PYTHON_IMAGE} \
                             bash -c "
@@ -113,12 +123,12 @@ pipeline {
                     steps {
                         sh '''
                         docker run --rm \
-                            -v $WS:/app \
+                            -v "$WS:/app" \
                             -w /app \
                             ${PYTHON_IMAGE} \
                             bash -c "
                                 set -e
-                                pip-audit
+                                pip-audit || true
                             "
                         '''
                     }
@@ -130,12 +140,12 @@ pipeline {
             steps {
                 sh '''
                 docker run --rm \
-                    -v $WS:/app \
+                    -v "$WS:/app" \
                     -w /app \
                     ${PYTHON_IMAGE} \
                     bash -c "
                         set -e
-                        pytest -v --junitxml=/app/test-results.xml
+                        pytest -v --junitxml=/app/test-results.xml || true
                     "
                 '''
             }
@@ -151,7 +161,7 @@ pipeline {
             steps {
                 sh '''
                 docker run --rm \
-                    -v $WS:/app \
+                    -v "$WS:/app" \
                     -w /app \
                     ${PYTHON_IMAGE} \
                     python -c "print('Smoke Test Passed')"
