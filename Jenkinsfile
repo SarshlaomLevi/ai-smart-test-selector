@@ -36,50 +36,84 @@ pipeline {
             steps {
                 sh '''
                 echo "WORKSPACE=$WORKSPACE"
-                pwd
+                echo "PWD=$PWD"
+                env | grep WORKSPACE || true
                 '''
             }
         }
 
-        stage('Run In Docker') {
-            agent {
-                docker {
-                    image 'python:3.11-slim'
-                    reuseNode true
-                }
+        stage('Verify Requirements (HOST)') {
+            steps {
+                sh '''
+                echo "=== HOST CHECK ==="
+                test -f requirements.txt && echo "OK requirements exists" || echo "MISSING requirements"
+                head -n 5 requirements.txt
+                '''
             }
+        }
 
-            stages {
+        stage('Docker Sanity Check') {
+            steps {
+                sh '''
+                docker version
+                '''
+            }
+        }
 
-                stage('Verify Files') {
-                    steps {
-                        sh '''
+        stage('Verify Inside Container') {
+            steps {
+                sh '''
+                docker run --rm \
+                    -v "$(pwd):/app" \
+                    -w /app \
+                    ${PYTHON_IMAGE} \
+                    bash -c "
+                        set -e
+                        echo '=== INSIDE CONTAINER ==='
                         pwd
                         ls -la
 
+                        echo '=== REQUIREMENTS CHECK ==='
                         test -f requirements.txt
-
                         head -n 5 requirements.txt
-                        '''
-                    }
-                }
+                    "
+                '''
+            }
+        }
 
-                stage('Install Dependencies') {
-                    steps {
-                        sh '''
+        stage('Install Dependencies') {
+            steps {
+                sh '''
+                docker run --rm \
+                    -v "$(pwd):/app" \
+                    -w /app \
+                    ${PYTHON_IMAGE} \
+                    bash -c "
+                        set -e
+
+                        echo '=== INSTALL START ==='
+
                         pip install --upgrade pip
 
                         pip install -r requirements.txt
 
                         pip install pytest flake8 pip-audit
-                        '''
-                    }
-                }
+                    "
+                '''
+            }
+        }
+
+        stage('Quality Gates') {
+            parallel {
 
                 stage('Lint') {
                     steps {
                         sh '''
-                        flake8 . --count --statistics
+                        docker run --rm \
+                            -v "$(pwd):/app" \
+                            -w /app \
+                            ${PYTHON_IMAGE} \
+                            bash -c "flake8 . --count --statistics"
                         '''
                     }
                 }
@@ -87,34 +121,44 @@ pipeline {
                 stage('Security Scan') {
                     steps {
                         sh '''
-                        pip-audit || true
-                        '''
-                    }
-                }
-
-                stage('Unit Tests') {
-                    steps {
-                        sh '''
-                        pytest -v \
-                        --junitxml=test-results.xml || true
-                        '''
-                    }
-                }
-
-                stage('Smoke Test') {
-                    steps {
-                        sh '''
-                        python -c "print('Smoke Test Passed')"
+                        docker run --rm \
+                            -v "$(pwd):/app" \
+                            -w /app \
+                            ${PYTHON_IMAGE} \
+                            bash -c "pip-audit || true"
                         '''
                     }
                 }
             }
         }
 
+        stage('Unit Tests') {
+            steps {
+                sh '''
+                docker run --rm \
+                    -v "$(pwd):/app" \
+                    -w /app \
+                    ${PYTHON_IMAGE} \
+                    bash -c "pytest -v --junitxml=test-results.xml || true"
+                '''
+            }
+        }
+
+        stage('Smoke Test') {
+            steps {
+                sh '''
+                docker run --rm \
+                    -v "$(pwd):/app" \
+                    -w /app \
+                    ${PYTHON_IMAGE} \
+                    python -c "print('Smoke Test Passed')"
+                '''
+            }
+        }
+
         stage('Publish Results') {
             steps {
-                junit testResults: 'test-results.xml',
-                       allowEmptyResults: true
+                junit testResults: 'test-results.xml', allowEmptyResults: true
             }
         }
     }
@@ -129,10 +173,7 @@ pipeline {
         }
 
         always {
-            archiveArtifacts(
-                artifacts: '**/*.xml',
-                allowEmptyArchive: true
-            )
+            archiveArtifacts artifacts: '**/*.xml', allowEmptyArchive: true
         }
     }
 }
