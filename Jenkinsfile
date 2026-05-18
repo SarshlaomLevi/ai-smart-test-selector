@@ -57,7 +57,41 @@ pipeline {
                         $IMAGE_NAME:$TAG \
                         bash -c "
                             set -e
-                            bandit -r src || true
+
+                            echo '=== RUNNING BANDIT ==='
+                            bandit -r src --exit-zero -f json -o bandit-report.json || true
+                        "
+                '''
+            }
+        }
+
+        stage('Security Gate') {
+            steps {
+                sh '''
+                    docker run --rm \
+                        -v $PWD:/app \
+                        -w /app \
+                        $IMAGE_NAME:$TAG \
+                        bash -c "
+                            set -e
+
+                            echo '=== ANALYZING SECURITY REPORT ==='
+
+                            if [ ! -f bandit-report.json ]; then
+                                echo '⚠️ No security report found'
+                                exit 0
+                            fi
+
+                            HIGH_ISSUES=$(grep -o '\"issue_severity\": \"HIGH\"' bandit-report.json | wc -l)
+
+                            echo \"High severity issues: $HIGH_ISSUES\"
+
+                            if [ \"$HIGH_ISSUES\" -gt 0 ]; then
+                                echo '❌ High severity security issues found'
+                                exit 1
+                            fi
+
+                            echo '✅ Security gate passed'
                         "
                 '''
             }
