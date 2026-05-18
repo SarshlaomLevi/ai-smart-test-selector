@@ -61,7 +61,7 @@ pipeline {
             steps {
                 sh '''
                 docker run --rm \
-                    -v "$(pwd):/app" \
+                    -v "$WORKSPACE:/app" \
                     -w /app \
                     ${PYTHON_IMAGE} \
                     bash -c "
@@ -80,7 +80,7 @@ pipeline {
             steps {
                 sh '''
                 docker run --rm \
-                    -v "$(pwd):/app" \
+                    -v "$WORKSPACE:/app" \
                     -v "$PIP_CACHE_DIR:/root/.cache/pip" \
                     -w /app \
                     ${PYTHON_IMAGE} \
@@ -110,7 +110,7 @@ pipeline {
                     steps {
                         sh '''
                         docker run --rm \
-                            -v "$(pwd):/app" \
+                            -v "$WORKSPACE:/app" \
                             -w /app \
                             ${PYTHON_IMAGE} \
                             bash -c "
@@ -125,7 +125,7 @@ pipeline {
                     steps {
                         sh '''
                         docker run --rm \
-                            -v "$(pwd):/app" \
+                            -v "$WORKSPACE:/app" \
                             -w /app \
                             ${PYTHON_IMAGE} \
                             bash -c "
@@ -142,7 +142,7 @@ pipeline {
             steps {
                 sh '''
                 docker run --rm \
-                    -v "$(pwd):/app" \
+                    -v "$WORKSPACE:/app" \
                     -w /app \
                     ${PYTHON_IMAGE} \
                     bash -c "
@@ -163,7 +163,7 @@ pipeline {
             steps {
                 sh '''
                 docker run --rm \
-                    -v "$(pwd):/app" \
+                    -v "$WORKSPACE:/app" \
                     -w /app \
                     ${PYTHON_IMAGE} \
                     python -c "print('Smoke Test Passed')"
