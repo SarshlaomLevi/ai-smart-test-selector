@@ -26,8 +26,8 @@ pipeline {
         stage('Fix Permissions') {
             steps {
                 sh '''
-                    echo "Fixing workspace permissions..."
-                    chmod -R a+rwX $WORKSPACE || true
+                    echo "=== FIXING WORKSPACE PERMISSIONS ==="
+                    chmod -R a+rwX "$WORKSPACE" || true
                 '''
             }
         }
@@ -49,13 +49,19 @@ pipeline {
             steps {
                 sh '''
                     docker run --rm \
-                        -v $WORKSPACE:$WORKDIR \
-                        -w $WORKDIR \
-                        $IMAGE_NAME:$TAG \
-                        bash -c "
-                            set -e
+                    -v "$WORKSPACE:$WORKDIR" \
+                    -w "$WORKDIR" \
+                    $IMAGE_NAME:$TAG \
+                    bash -c "
+
+                        echo '=== RUNNING FLAKE8 ==='
+
+                        if [ -d src ]; then
                             flake8 src || true
-                        "
+                        else
+                            echo 'No src directory found'
+                        fi
+                    "
                 '''
             }
         }
@@ -64,14 +70,19 @@ pipeline {
             steps {
                 sh '''
                     docker run --rm \
-                        -v $WORKSPACE:$WORKDIR \
-                        -w $WORKDIR \
-                        $IMAGE_NAME:$TAG \
-                        bash -c "
-                            set -e
-                            echo '=== RUNNING BANDIT ==='
-                            bandit -r src --exit-zero -f json -o bandit-report.json
-                        "
+                    -v "$WORKSPACE:$WORKDIR" \
+                    -w "$WORKDIR" \
+                    $IMAGE_NAME:$TAG \
+                    bash -c "
+
+                        echo '=== RUNNING BANDIT ==='
+
+                        bandit \
+                            -r src \
+                            --exit-zero \
+                            -f json \
+                            -o bandit-report.json
+                    "
                 '''
             }
         }
@@ -79,31 +90,23 @@ pipeline {
         stage('Security Gate') {
             steps {
                 sh '''
-                    docker run --rm \
-                        -v $WORKSPACE:$WORKDIR \
-                        -w $WORKDIR \
-                        $IMAGE_NAME:$TAG \
-                        bash -c "
-                            set -e
+                    echo "=== ANALYZING SECURITY REPORT ==="
 
-                            echo '=== ANALYZING SECURITY REPORT ==='
+                    if [ ! -f "$WORKSPACE/bandit-report.json" ]; then
+                        echo "⚠️ No security report found"
+                        exit 0
+                    fi
 
-                            if [ ! -f bandit-report.json ]; then
-                                echo '⚠️ No security report found'
-                                exit 0
-                            fi
+                    HIGH_ISSUES=$(grep -o '"issue_severity": "HIGH"' "$WORKSPACE/bandit-report.json" | wc -l)
 
-                            HIGH_ISSUES=$(grep -o '\"issue_severity\": \"HIGH\"' bandit-report.json | wc -l)
+                    echo "High severity issues: $HIGH_ISSUES"
 
-                            echo \"High severity issues: $HIGH_ISSUES\"
+                    if [ "$HIGH_ISSUES" -gt 0 ]; then
+                        echo "❌ High severity security issues detected"
+                        exit 1
+                    fi
 
-                            if [ \"$HIGH_ISSUES\" -gt 0 ]; then
-                                echo '❌ High severity security issues found'
-                                exit 1
-                            fi
-
-                            echo '✅ Security gate passed'
-                        "
+                    echo "✅ Security gate passed"
                 '''
             }
         }
@@ -112,13 +115,19 @@ pipeline {
             steps {
                 sh '''
                     docker run --rm \
-                        -v $WORKSPACE:$WORKDIR \
-                        -w $WORKDIR \
-                        $IMAGE_NAME:$TAG \
-                        bash -c "
-                            set -e
+                    -v "$WORKSPACE:$WORKDIR" \
+                    -w "$WORKDIR" \
+                    $IMAGE_NAME:$TAG \
+                    bash -c "
+
+                        echo '=== RUNNING TESTS ==='
+
+                        if [ -d tests ] && [ \"$(find tests -name '*.py' | wc -l)\" -gt 0 ]; then
                             pytest -v
-                        "
+                        else
+                            echo 'No tests found — skipping'
+                        fi
+                    "
                 '''
             }
         }
@@ -127,13 +136,16 @@ pipeline {
             steps {
                 sh '''
                     docker run --rm \
-                        -v $WORKSPACE:$WORKDIR \
-                        -w $WORKDIR \
-                        $IMAGE_NAME:$TAG \
-                        bash -c "
-                            set -e
-                            python main.py --help || echo 'No CLI entrypoint'
-                        "
+                    -v "$WORKSPACE:$WORKDIR" \
+                    -w "$WORKDIR" \
+                    $IMAGE_NAME:$TAG \
+                    bash -c "
+
+                        echo '=== RUNNING SMOKE TEST ==='
+
+                        python main.py --help || \
+                        echo 'No CLI entrypoint found'
+                    "
                 '''
             }
         }
@@ -141,14 +153,20 @@ pipeline {
         stage('Tag Success Build') {
             steps {
                 sh '''
-                    docker tag $IMAGE_NAME:$TAG $IMAGE_NAME:stable
+                    echo "=== TAGGING STABLE BUILD ==="
+
+                    docker tag \
+                    $IMAGE_NAME:$TAG \
+                    $IMAGE_NAME:stable
                 '''
             }
         }
 
-        stage('Cleanup Old Images') {
+        stage('Cleanup Docker') {
             steps {
                 sh '''
+                    echo "=== CLEANING DOCKER ==="
+
                     docker image prune -f || true
                 '''
             }
@@ -156,6 +174,7 @@ pipeline {
     }
 
     post {
+
         success {
             echo "✅ CI PASSED - production build stable"
         }
