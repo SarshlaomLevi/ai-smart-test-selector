@@ -18,5 +18,5 @@ def df_features(df):
 
 # trained model bundle (depends on df)
 @pytest.fixture(scope="session")
-def model_bundle(df):
-    return train_model(df)
+def model_bundle(df_features):
+    return train_model(df_features)
