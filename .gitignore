@@ -25,3 +25,8 @@ Thumbs.db
 
 # Backup folder
 ai-smart-test-selector-backup/
+
+# Coverage & testing
+.coverage
+htmlcov/
+.pytest_cache/
