@@ -26,12 +26,12 @@ RUN pip install --upgrade pip && \
 COPY . .
 
 # =========================
-# CI / Dev tools (optional but recommended)
+# CI / Dev tools (optional but recommended)S
 # =========================
-RUN pip install --no-cache-dir \
-    flake8 \
-    bandit \
-    pytest
+# RUN pip install --no-cache-dir \
+#     flake8 \
+#     bandit \
+#     pytest
 
 # =========================
 # Runtime config
