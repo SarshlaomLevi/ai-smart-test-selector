@@ -2,165 +2,118 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 import pandas as pd
 
-from src.data.loader import load_data
-from src.models.feature_engineering import add_features
-from src.models.ml_model import train_model
-from src.models.ranking import rank_tests
+from ai_smart_test_selector.data.loader import load_data
+from ai_smart_test_selector.models.feature_engineering import add_features
+from ai_smart_test_selector.models.ml_model import train_model
+from ai_smart_test_selector.models.ranking import rank_tests
 
 
 # =========================================================
-# FASTAPI APPLICATION INITIALIZATION
+# APP INIT
 # =========================================================
-app = FastAPI(
-    title="AI Smart Test Selector API"
-)
+app = FastAPI(title="AI Smart Test Selector API")
 
 
 # =========================================================
-# INPUT SCHEMA FOR ML PREDICTION
+# STATE INITIALIZATION (PRODUCTION SAFE)
+# =========================================================
+@app.on_event("startup")
+def startup_event():
+    """
+    Load data + train model once when server starts
+    """
+    df = load_data()
+    df = add_features(df)
+
+    model, X_test, y_test = train_model(df)
+    ranked_df = rank_tests(model, df)
+
+    # store globally in app state (production pattern)
+    app.state.model = model
+    app.state.ranked_df = ranked_df
+
+
+# =========================================================
+# INPUT SCHEMA
 # =========================================================
 class TestInput(BaseModel):
-
-    runtime_sec: int = Field(
-        example=600,
-        description="Total execution time of the test in seconds"
-    )
-
-    previous_failures: int = Field(
-        example=5,
-        description="Number of previous failures recorded for this test"
-    )
-
-    run_count: int = Field(
-        example=10,
-        description="Total number of times the test was executed"
-    )
-
-    severity_score: int = Field(
-        example=9,
-        description="Severity level of the test (1-10 scale)"
-    )
+    runtime_sec: int = Field(example=600)
+    previous_failures: int = Field(example=5)
+    run_count: int = Field(example=10)
+    severity_score: int = Field(example=9)
 
 
 # =========================================================
-# LOAD DATA + FEATURE ENGINEERING + MODEL TRAINING
+# HELPERS
 # =========================================================
+def get_ranked_df():
+    return app.state.ranked_df
 
-# Load raw dataset
-df = load_data()
 
-# Apply feature engineering transformations
-df = add_features(df)
-
-# Train ML model
-model, X_test, y_test = train_model(df)
-
-# Precompute ranked test results (IMPORTANT: done once for performance)
-ranked_df = rank_tests(model, df)
+def get_model():
+    return app.state.model
 
 
 # =========================================================
-# ROOT ENDPOINT (HEALTH CHECK)
+# ENDPOINTS
 # =========================================================
+
+
 @app.get("/")
 def root():
-
-    return {
-        "message": "AI Smart Test Selector API is running"
-    }
+    return {"message": "AI Smart Test Selector API is running"}
 
 
-# =========================================================
-# GET FULL RANKED TEST LIST
-# =========================================================
 @app.get("/rank-tests")
 def rank_all_tests():
+    df = get_ranked_df()
 
-    # Return all tests with predicted risk and explanation
-    return ranked_df[
-        [
-            "test_name",
-            "failure_probability",
-            "explanation"
-        ]
-    ].to_dict(orient="records")
+    return df[["test_name", "failure_probability", "explanation"]].to_dict(
+        orient="records"
+    )
 
 
-# =========================================================
-# GET AVAILABLE TEST NAMES
-# =========================================================
 @app.get("/available-tests")
 def available_tests():
+    df = get_ranked_df()
 
-    # Used by UI / CI systems to know valid test identifiers
-    return {
-        "tests": ranked_df["test_name"].tolist()
-    }
+    return {"tests": df["test_name"].tolist()}
 
 
-# =========================================================
-# GET TOP RISKY TESTS
-# =========================================================
 @app.get("/top-risky")
 def top_risky_tests():
+    df = get_ranked_df()
 
-    # Sort by highest failure probability
-    top_df = ranked_df.sort_values(
-        "failure_probability",
-        ascending=False
-    ).head(5)
+    top_df = df.sort_values("failure_probability", ascending=False).head(5)
 
-    return top_df[
-        [
-            "test_name",
-            "failure_probability",
-            "explanation"
-        ]
-    ].to_dict(orient="records")
+    return top_df[["test_name", "failure_probability", "explanation"]].to_dict(
+        orient="records"
+    )
 
 
-# =========================================================
-# GET ONLY CRITICAL TESTS (CI/CD USAGE)
-# =========================================================
 @app.get("/critical-tests")
 def critical_tests():
+    df = get_ranked_df()
 
-    # Filter only high-risk tests for CI pipelines
-    critical_df = ranked_df[
-        ranked_df["failure_probability"] > 0.7
-    ]
+    critical_df = df[df["failure_probability"] > 0.7]
 
-    return critical_df[
-        [
-            "test_name",
-            "failure_probability",
-            "explanation"
-        ]
-    ].to_dict(orient="records")
+    return critical_df[["test_name", "failure_probability", "explanation"]].to_dict(
+        orient="records"
+    )
 
 
-# =========================================================
-# SIMULATE SINGLE TEST EXECUTION
-# =========================================================
 @app.get("/simulate-test/{test_name}")
 def simulate_test(test_name: str):
+    df = get_ranked_df()
 
-    # Find test in ranked dataset
-    selected = ranked_df[
-        ranked_df["test_name"] == test_name
-    ]
+    selected = df[df["test_name"] == test_name]
 
-    # Handle missing test case
     if selected.empty:
-        return {
-            "error": "Test not found"
-        }
+        return {"error": "Test not found"}
 
     row = selected.iloc[0]
-
     risk = float(row["failure_probability"])
 
-    # Risk classification logic
     if risk > 0.85:
         result = "CRITICAL"
     elif risk > 0.7:
@@ -174,30 +127,27 @@ def simulate_test(test_name: str):
         "test_name": row["test_name"],
         "risk": round(risk, 2),
         "result": result,
-        "explanation": row["explanation"]
+        "explanation": row["explanation"],
     }
 
 
-# =========================================================
-# MACHINE LEARNING PREDICTION ENDPOINT
-# =========================================================
 @app.post("/predict")
 def predict(test: TestInput):
+    model = get_model()
 
-    # Convert input to DataFrame for model inference
     input_df = pd.DataFrame(
-        [{
-            "runtime_sec": test.runtime_sec,
-            "previous_failures": test.previous_failures,
-            "run_count": test.run_count,
-            "severity_score": test.severity_score
-        }]
+        [
+            {
+                "runtime_sec": test.runtime_sec,
+                "previous_failures": test.previous_failures,
+                "run_count": test.run_count,
+                "severity_score": test.severity_score,
+            }
+        ]
     )
 
-    # Predict failure probability
     probability = model.predict_proba(input_df)[0][1]
 
-    # Generate human-readable explanation
     if probability > 0.85:
         explanation = "Critical risk due to severe instability"
     elif probability > 0.7:
@@ -209,5 +159,5 @@ def predict(test: TestInput):
 
     return {
         "failure_probability": round(float(probability), 2),
-        "explanation": explanation
+        "explanation": explanation,
     }
