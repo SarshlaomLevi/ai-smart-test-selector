@@ -22,7 +22,7 @@ def main():
         "--run-all", action="store_true", help="Run full pipeline (train + evaluate)"
     )
 
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     # -------------------------
     # 1. LOAD DATA
