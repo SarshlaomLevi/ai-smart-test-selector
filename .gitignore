@@ -25,6 +25,9 @@ Thumbs.db
 
 # Backup folder
 ai-smart-test-selector-backup/
+**/ai-smart-test-selector-backup/
+*-backup
+*.copy
 
 # Coverage & testing
 .coverage

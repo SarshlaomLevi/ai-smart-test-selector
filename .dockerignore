@@ -1,9 +1,32 @@
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Environment
 .env
-.git
-.venv
+venv/
+.venv/
+
+# Git
+.git/
+
+# Build artifacts
 dist/
 build/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+
+# Backup folders
+ai-smart-test-selector-backup/
+**/ai-smart-test-selector-backup/
+*-backup
+*.copy
