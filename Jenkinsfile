@@ -65,7 +65,7 @@ pipeline {
             }
         }
 
-        stage('Unit Tests') {
+        stage('Unit Tests + Coverage') {
             steps {
                 sh '''
                     docker run --rm \
@@ -73,7 +73,7 @@ pipeline {
                     $IMAGE_NAME:$TAG \
                     bash -c "
                         echo '=== RUNNING TESTS ==='
-                        pytest tests -v
+                        pytest tests -v --cov=src --cov-report=term
                     "
                 '''
             }
