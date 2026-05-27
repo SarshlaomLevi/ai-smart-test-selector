@@ -2,6 +2,10 @@
 venv/
 .venv/
 
+# Python package metadata
+*.egg-info/
+src/*.egg-info/
+
 # Python cache
 __pycache__/
 *.pyc
