@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict
 import pandas as pd
 import time
+from contextlib import asynccontextmanager
 
 from ai_smart_test_selector.data.loader import load_data
 from ai_smart_test_selector.models.feature_engineering import add_features
@@ -11,15 +12,40 @@ from ai_smart_test_selector.utils.logger import get_logger
 
 
 # =========================================================
-# APP INIT
+# LOGGER
 # =========================================================
-app = FastAPI(title="AI Smart Test Selector API")
-
 logger = get_logger("api")
 
 
 # =========================================================
-# MIDDLEWARE (REQUEST LOGGING)
+# LIFESPAN (STARTUP + SHUTDOWN)
+# =========================================================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Loading data and training model...")
+
+    df = load_data()
+    df = add_features(df)
+
+    model, X_test, y_test = train_model(df)
+    ranked_df = rank_tests(model, df)
+
+    app.state.model = model
+    app.state.ranked_df = ranked_df
+
+    logger.info("Startup completed successfully")
+
+    yield
+
+
+# =========================================================
+# APP INIT (IMPORTANT: lifespan here!)
+# =========================================================
+app = FastAPI(title="AI Smart Test Selector API", lifespan=lifespan)
+
+
+# =========================================================
+# MIDDLEWARE
 # =========================================================
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -39,35 +65,19 @@ async def log_requests(request: Request, call_next):
 
 
 # =========================================================
-# STATE INITIALIZATION (STARTUP)
-# =========================================================
-@app.on_event("startup")
-def startup_event():
-    """
-    Load data + train model once on startup
-    """
-    logger.info("Loading data and training model...")
-
-    df = load_data()
-    df = add_features(df)
-
-    model, X_test, y_test = train_model(df)
-    ranked_df = rank_tests(model, df)
-
-    app.state.model = model
-    app.state.ranked_df = ranked_df
-
-    logger.info("Startup completed successfully")
-
-
-# =========================================================
 # INPUT SCHEMA
 # =========================================================
 class TestInput(BaseModel):
-    runtime_sec: int = Field(example=600)
-    previous_failures: int = Field(example=5)
-    run_count: int = Field(example=10)
-    severity_score: int = Field(example=9)
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "runtime_sec": 600,
+                "previous_failures": 5,
+                "run_count": 10,
+                "severity_score": 9,
+            }
+        }
+    )
 
 
 # =========================================================
